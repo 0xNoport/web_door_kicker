@@ -5,6 +5,7 @@
 Requirements
 <br>
 **=> Website must use POST method as login form** 
+
 **=> This is not really brute force, but a dictionary attack. Many people use these terms synonymously.**
 
 <br>
